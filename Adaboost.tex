@@ -1,0 +1,548 @@
+\documentclass[12pt]{article} 
+\usepackage{CJKutf8} 
+
+\usepackage{algorithm}
+\usepackage{algpseudocode} 
+\usepackage[numbers, sort&compress]{natbib}
+
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{amssymb}
+
+
+\usepackage{textcomp,booktabs}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{colortbl}
+\definecolor{mygray}{gray}{.9}
+\definecolor{mypink}{rgb}{.99,.91,.95}
+\definecolor{mycyan}{cmyk}{.3,0,0,0}
+
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}  % Use Input in the format of Algorithm
+\renewcommand{\algorithmicensure}{\textbf{Output:}} % Use Output in the format of Algorithm
+
+
+\newtheorem{mydef}{Definition}
+
+\begin{document} 
+\begin{CJK}{UTF8}{bsmi} 
+
+\section{Introduction}
+
+軌跡壓縮已是一個典型的問題，為了減少軌跡的儲存量與傳輸的能耗。在過去已有不少著名的演算法針對軌跡壓縮而設計。一般來說，軌跡壓縮的做法就是將連續好幾個點，在軌跡之間的誤差小於一個定值之下，改用一個合理的線段，或者是滿足特定參數的曲線來代替。因此可以用更小的儲存空間，容許的誤差下保存軌跡資訊。軌跡壓縮主要有line simplification\cite{1961:Bellman}\cite{1973:DP}\cite{2004:TDTROPW}\cite{2006:STTrace}，line regression\cite{2004:ICDE_lineregress},map matching\cite{2005:ICDT_map1}\cite{2004:Map2}, semantic trajectory compression\cite{2009:SSTD_Semantic}\cite{2009:LBSN_semantic} 等方法。\\
+
+但是line regression的方法會發生jumping point的情況。map matching則是需要地圖資訊才能處理，所以通常這都用在軌跡資料的後處理比較適合。semantic compression 是需要擁有更多軌跡特徵資訊。相反的，line simplification不需要額外的類型資訊，地圖資料，資料的後處理，所以非常適合用在系統資源缺乏行動裝置上運作。由於無線網路通訊的發展，同時具有微感測器的行動裝置不斷增加，所以使用這些行動裝置收集軌跡的問題就越來越重要。\\
+
+在行動裝置上收集軌跡資料帶來許多問題，其中最主要的問題有兩個:1)必須擁有大量的記憶體來儲存這些資料;2) 花費傳輸資源傳輸資訊；然而儲存空間和能耗在行動裝置上是兩項最重要的議題。\\
+
+
+同時，軌跡資料是一種串流資料(data stream),利用感測器不間斷地將資料傳入裝置內。A data stream是一種即時(real-time)，連續，有次序性的資料\cite{2003Issues}，所以在資料收集完成之前，我們可以處理已經得到的資料，減少等待的時間。這種Online operator對於提升stream-based system的工作效能是很以幫助的，因此我們提出兩種立基於line simplification的Online軌跡壓縮演算法。我們的貢獻如下：
+	\begin{itemize}
+		\item 提出軌跡壓縮演算法在行動定位系統上的四項要求
+		\item 利用軌跡的特性提出Self-Annealing Trajectory Compression Algorithm (SATCA)控制壓縮率，以及Greedy trajectry Compression Algorithm 控制誤差。而且這兩套演算法的效能可以比batch 演算法還要好。
+	\end{itemize}
+
+
+在本文中，第二節為Related work介紹過去軌跡壓縮演算法的發展；第三節說明stream-based system系統以及軌跡的定義;然後在第四節說明在行動裝置上軌跡壓縮演算法的要求;接著我們會在第五節介紹四種演算法;第六節介紹各演算法的效能評估；第七節總結。
+\section{Related Work}
+
+軌跡資料，是指資料包含二維空間（或者是三維空間），與一維時間的有序點集。所以軌跡資料可以看成是在一組在以時間為參數在二維多項函數(polytonal chains)上取值的集合。但是因為軌跡資料包含了來源環境資訊，外部地理資訊，時間順序，以及幾何性質，所以我們有很多種方式可以壓縮軌跡。軌跡壓縮最廣為人用的方法，就是利用軌跡的幾何性質做line simplification，這個廣在被geographic information systems, digital image analysis, and computational geometry等領域所探討。\\
+
+一般來說，line simplification主要分為兩大類:1)min-$\epsilon$ problem:給定vertex的數目，找出最小誤差的近似多項函數，例如Bellman algorithm\cite{1961:Bellman};2)min-$\#$ problem:在給定一個tolerance error $\epsilon$下，找出一個近似原有的曲線函數$T$，其擁有最少的vertices，例如:
+Douglas-Peucker algorithm (,DP)\cite{1973:DP};。後來也相當多的演算法\cite{1992:AlgoAndCom_Appro}\cite{2000:Agarwal_Varadarajan}處理line simplification的問題。\\
+
+上述line simplification的演算法並不適合直接使用在軌跡資料。Meratnia\cite{2004:TDTROPW}等人認為，處理軌跡資料的時候必須考慮時間的因素，所以提出time ratio algorithm 計算距離。利用新的距離公式，提出Top-Down Time-Ratio algorithm, TDTR。同時也改進TDTR只能做資料的post-process operator問題，提出Open window algorithm ,OPW，在收集資料的時候，就能先進行部分資料的壓縮。TDTR與OPW 都是解決min-$\#$ problem的演算法。在min-$\epsilon$ problem上，Potamias等人提出了STTrace\cite{2006:STTrace}。他們根據軌跡的性質，定義Synchronous Euclidean Distance, SED。並用SED來評估哪些點該保留下來。\\
+
+因為軌跡資料屬於時間序列的一種，我們也可以利用回歸進行軌跡的壓縮演算法\cite{2004:ICDE_lineregress}\cite{2001:ICDM_lineReg}，由於這些演算法採用的都是sliding window的方法將一條軌跡分成許多部分，分別用有最小誤差線段代替。所以每條線段之間都可能會擁有斷點(jump point)。斷點，會讓一些query製造麻煩，例如查詢"where are you at the specific time $t$?"\\
+
+利用圖資來簡化軌跡\cite{2005:ICDT_map1}\cite{2004:Map2}也是一個方法，利用道路的圖形，找出最接近原始軌跡的道路的路線集合。不過這方法並不適用於人或者是一般動物的軌跡，因為這樣的物體其運動狀態的速度，方向的變化太過隨機，難以預測。通常這種壓縮法用在交通工具上比較適合。另外一種類似圖資的做法，就是採用semantic compression algorithm\cite{2009:SSTD_Semantic}。利用inforamtion on transportation network，將軌跡中部份路線改用交通工具的路線資訊代替。\\
+
+
+在軌跡壓縮的理論部分，雖然 Meratnia\cite{2004:TDTROPW}等人，提出 average time distance計算誤差，可是並無可用在一般服務的相關性質。Cao\cite{2006:Cao}等人，針對line simplification 的定義，性質，以及與地理相關的查詢服務(query)進行探討。他們證明在以 Haudoff metric 評估誤差的狀況下，採用 time\_uniform distance 的壓縮演算法，可以保有在與空間相關 query 有 sound 性質，確保 query 的誤差也會在一定範圍之內。同時他們也提出在aging friendly 性質，這表示該演算法可以利用已經壓縮過的軌跡，找出子集得到誤差更高壓縮軌跡，並且該子集等於原有演算法用高誤差所得子集。但是，在\cite{streamdataGIS}提到，該agin friendly定義太過嚴苛。對於一般實務需求，可以他們提出寬鬆的定義 error restricted algorithm，只需要能找出該子集能滿足高誤差即可。\\
+
+
+現在最受歡迎的收集軌跡的方法，是使用 GPS receiver不間斷的記錄。因此大部份軌跡資料的來源是屬於 data stream 的類型.首先Zhu等人\cite{2002:VLDB_window}利用不同類型的window處理streaming data，接著Golab等人\cite{2003Issues}，針對 data stream management system 提出幾項對於在上運作的應用程式之要求。因此，Nicola 等人，根據這些要求提出五種不同 lossy preprocessing methods for trajectories\cite{2008:MDM_preprocess}以及與其他類型的軌跡壓縮法比較\cite{streamdataGIS}。Line simplification 的演算法由於不需要額外資訊與後處理壓縮結果的問題，所以比較適合作為 stream-based system 上的 operator 。因此我們以在stream-based system on mobile devices與line simplification為討論的基礎。\\
+
+
+
+
+
+
+\section{Scenario of Trajectory Compression}
+
+
+
+
+\subsection{Stream-Based System}
+
+
+
+\begin{figure}[ht]
+\begin{center}
+\includegraphics[width=1\textwidth]{../figure/1.png}
+\caption{Processing of trajectory data streams}
+\label{fig:proTDS}
+\end{center}
+\end{figure}
+
+
+For data stream system, we need an architecture to provide a container for different compression algorithms. In \cite{streamdataGIS}, the interface for a data stream management system (DSMS)\cite{2001:DSMS} allows to add operators, such as compression algorithms, and give parameters required by the operators, e.g., tolerate error and window size.\\
+
+Figure ~\ref{fig:proTDS} depicts an standard process, which includes a compression operator for data stream system. In mobile devices, GPS receivers produce stream data of position that are filtered by selector operator to reduce effect of signal drift. The resulting stream is separated into different windows. Then, the compression operator receives and compress data of the windows. Finally, the compressed results can be stored in databases, uploaded to servers, or processed by other operators. \\
+
+In \cite{2002:VLDB_window}, there are two ways to separate data stream into windows. Time-based windows contain records received within a fixed time interval. Count-based windows contain a given number of records. It results in each window has information on part of a trajectory. That means that compression operator cannot process a trajectory at one time, but windows-based system avoid applying a operator to the whole stream. Thus, a compression operator on window-based systems doesn't block the further process in the systems.\\
+
+In general, the buffer is finite on the mobile devices. It causes the problem to block the system processes when the buffer is full. Without loss of generality, we let window size equal to buffer size. A buffer has only one window at one time. Thus, we can simply the original problem to remove data within a window from the buffer for newer windows. This is a big issue for compression operator on window-based systems. Thus, our proposed algorithms includes processes to update the windows in a buffer.\\
+
+
+\subsection{Trajectory}
+
+Common data sources of trajectory compression algorithm are GPS receivers. They provide spatial-temporal data stream in the form of a two (or three)-dimension location and one-dimension time trajectory. Ignoring altitude information, a trajectory defines the location of a moving object in xy-plane as a implicit function of time $t$. What's more, we assume the object moves straightly with constant velocity from one vertex $p_i$ to the next vertex $p_{i+1}$. Thus, we expect the location of $p(t),\, t_{i} \leq t \leq t_{i+1}$, by a linear interpolation between $p_i$ and $p_{i+1}$.
+
+
+\begin{mydef}
+A trajectory is a function $T:[1,n]\rightarrow \mathbb{R}^3$ with $n \in \mathbb{N} $ that satisfies the following conditions:(1) $T(i)=(x_i,y_i,t_i)$
+,such that  $t_i < t_{i+1},\forall i\in {1,...,n-1}$ (2) $\forall \lambda, 0\leq\lambda\leq1$ and for each $i\in{1,...,n-1},T(i+\lambda) = (1-\lambda)T(i)+\lambda T(i+1)$. For every points(x,y,t) on the trajectory, we say that (x,y) is the expected location at time t.（quoted from \mbox{\cite{2006:Cao}})
+\end{mydef}
+
+
+\section{Criteria of Compression Algorithm}
+
+In the chapter, we depict the important characteristics of online compression  algorithm on mobile devices. These characteristics help us to design a suitable algorithm for the specific purposes.\\
+
+\subsection{Online processing}
+
+Online process is important for data stream systems. The data stream seems infinite until the sensing processing stops on systems. Thus, an batch algorithm is a blocking operator in data stream systems. In past, there are many famous algorithms of line simplification. We separate them into three categories as follows:1) batch algorithms: a blocking processing until the whole trajectory is obtained. e.g.,Douglas-Peucker\cite{1973:DP} and TDTR\cite{2004:TDTROPW};2) online algorithms without buffer: one pass process which instantly determines whether a incoming point should be added into a compression result or not, e.g., PLAZA\cite{streamdataGIS};3) online algorithms with a buffer: one pass process which keeps necessary data in the buffer, e.g., OPW\cite{2004:TDTROPW} and STTrace\cite{2006:STTrace}. Online algorithms are often used on data stream systems since batch algorithms are blocking operators.
+
+
+\subsection{Buffer Constraints}
+
+
+Finite buffer is one of common constraints on mobile devices, but data stream could provide infinite data until the stream is stopped. Full buffer is a general problem for data stream systems on mobile devices. It solves the problem by including a window operator in the systems, because the operator lets data are partitioned into finite windows. The systems can processes each window in a finite buffer. We choose the count-based window operator in this paper, because the operator is good at controlling size of windows. In \cite{2002:VLDB_window}, it provides two kinds of windows. One of them is the basic windows, which are fixed and the same size, and the other is the sliding windows, that is grown until the halting condition is met.\\
+
+
+\subsection{High Compression Rate}
+
+Small storage space results in devices can reduce the cost on data transmission as well as power consumption. The compression rate in this paper is defined as follows:
+
+\begin{mydef}
+The compression rate $CR$ of algorithm A for a point set $P$ with a compressed subset $P'$ in the three-dimension $(x,y,t)$ space is defined as follows:
+\[ CR = 1 - \frac{\#\mbox{ of }P'}{\#\mbox{ of }P}\]
+\end{mydef}
+
+
+The advantage of the definition is easy to read, because high compression rate means the system can save a trajectory with few storage space.\\
+
+\subsection{Minimal Error}
+
+In fact, there are many factors that make signal of sensors with large noise, such as signal drift and transmission leak. Intuitively, these problems should not be solved by compression algorithms. In this paper, we only discuss about error of compression results from eliminated points in a trajectory. \\
+
+The main concepts of line simplification is to find out the the subset that has small error from the original trajectory. Now we define similarity between the subset and the original trajectory. In this paper, we choose Hausdorff M-distance as the error of 
+
+
+\begin{mydef}
+Let $M$ be the distance between a 3-dimension$(x,y,t)$ point and 3D line. The distance $d_M(p,T)$ between a point $p$ and a trajectory $T$ is minimum M-distance between p and a line segment of $T$. The Hausdorff M-distance from a trajectory $T$ to another trajectory $T'$ is defined as :
+\[ D_M(T,T') = \max_{p\in T} d_M(p,T') \]
+\end{mydef}
+
+
+我們之所以採用Hausdorff M-distance作為誤差而非平均距離的原因是，平均距離並不適合使用在軌跡壓縮上。因為點數或者是長度越長的軌跡下，偶發的大幅度漂移是會被捨棄的。可是這個大幅度漂移可能是物體的移動狀態巨幅改變所導致的，所以不能使用平均距離。由於不同的測距函數D會使得壓縮演算法有不同的方式計算誤差，因此壓縮得到的軌跡誤差都會就會受到選擇的測距函數影響。跟據\cite{2006:Cao}，採用 time-uniform distance，可以確保壓縮軌跡在很多GIS查詢上保有sound的性質。\\
+
+
+\begin{mydef}
+In the three-dimensional (x,y,t) space, the distance metric $d_M$ at the specific time t' is defined as  follows:
+
+\[ d_M(T(t'),T') = \sqrt{(x(t')-x'(t'))^2+(y(t')-y'(t'))^2} \]
+where point $(x_c(t'),y_c(t'))$ might be interoperated by  $\overline{T'(t_i)T'(t_{i+1})}$ with $t_i < t' <t_{i+1}$
+
+\end{mydef}
+
+
+在決定好測量參數的定義之後，我們對軌跡壓縮演算法 S 的定義如下:
+
+\begin{mydef}
+Let $\{p_1,p_2,...p_n\}$ denote the set of vertices of a given trajectory $T$ and S is a function of trajectory compression based on line simplification . For a subset $\{p'_1,p'_2,...p'_s\} \subseteq T$, denote by $T'$ is an  $\epsilon$-simplification of $T$ with respect to $M$, denoted by $T'= S(T,\epsilon,M)$, if $D_M(T,T')\leq \epsilon $
+
+\end{mydef}
+
+
+
+
+
+\section{Online Trajectories Compression Algorithms}
+
+There are many famous simplification algorithms for some purposes in the past. These purposes are distinguished into two main categories as follows: 1)minimal error problem: given a trajectory $T$ and a target compression rate R, compute a simplification of $T$ that minimizes the error over all compressed traces that have at most $R$; 2) maximal compression rate: Given a trajectory $T$ and a tolerate error $\epsilon$, compute a compressed trace of $T$ that has the highest compression rate among all $\epsilon$-simplification of $T$.\\
+
+In this section, we introduce the famous algorithms, including Bellman, DP, TDTR, OPW, and STTrace, and our algorithms. We list the characteristics of the algorithms in  Table ~\ref{tab:classification}.
+
+\begin{table}[ht]
+\caption{\bf Classification of trajectory compression algorithm according to criteria }
+\begin{center}
+\begin{tabular}{p{2.5cm}||p{2.3cm}p{1.5cm}p{3cm}p{3.2cm}}
+\toprule 
+Compression method & Operation method & Target problem & Time complexity & Aging friendiness \\
+ 
+\midrule
+Bellman  & batch & min-\# or min-$\epsilon$ & $O(n^2)$ ($O(n^3)$) & error restricted\\
+\rowcolor{mygray}
+DP       & batch & min-\# & $O(n\log n)$ ($O(n^2)$) & yes\\
+
+TDTR     & batch & min-\# & $O(n\log n)$ ($O(n^2)$) & yes\\
+
+\rowcolor{mygray}
+OPW       & infinite buffer & min-\# & $O(n\log n)$ ($O(n^2)$) & error restricted\\
+
+STTrace     & stream-based & min-$\epsilon$ & $O(\frac{1}{N}\log \frac{N}{M} \log{M})$ & N/A\\
+
+\midrule
+\midrule
+\rowcolor{mygray}
+Jumping window     & window-based with buffer & min-\# or min-$\epsilon$ & $O(s\log s)$ ($O(s^2)$) &  N/A\\
+Sliding window     & window-based with buffer & min-\# & ?? & N/A\\
+
+\rowcolor{mygray}
+OTCme     & window-based with buffer & min-\# & $O(s\log s)$ ($O(s^2)$) & N/A\\
+OTCMc     & window-based with buffer & min-$\epsilon$ & $O(s\log s)$ ($O(s^2)$) & error restricted\\
+
+
+\bottomrule
+\end{tabular}
+\end{center}
+\label{tab:classification}
+\end{table}
+
+
+
+
+\subsection{Famous Trajectory Compression Algorithms}
+
+
+
+\subsubsection{Bellman algorithm}
+
+Bellman algorithm\cite{1961:Bellman} is a dynamic programing algorithm to find the subset of a trajectory that has the minimal error among the subsets of the trajectory with the specific conditions. Thus, we could directly use Bellman algorithm to find the optimal solution of minimal error problem. For min-\# problem, we list the simplifications of a trajectory with the different number of points by Bellman algorithm. Then, the solution is the simplification with the the minimal \# among the simplifications which errors are smaller than the given error. Bellman algorithm isn't aging friendliness\cite{2006:Cao}, but error restricted. 
+
+
+
+
+\subsubsection{Douglas-Pecker Algorithm (DP) and Top-Down Time-Ratio Algorithm (TDTR)}
+
+
+Dougloas-Pecker Algorithm \cite{1973:DP} is a classical line simplification algorithm. The concept of the algorithm is "divide and conquer." For every incoming point, it finds out the point that causes maximal error among the points in a trajectory, and the point is added to the compressed result. According to \cite{2006:Cao}, DP is aging friendless. Top-Down Time-Ratio algorithm is based on DP. The difference between TDTR and DP is that the distance metric of TDTR is time uniform distance. Thus, TDTR is also aging friendliness.
+
+
+
+
+\subsubsection{Open Window Algorithm (OPW)}
+
+
+Opening window algorithm\cite{2004:TDTROPW}, OPW, collects incoming points of a trajectory  $T= \{ p_1, ..., p_i \} $ in a buffer. The first point is called as an anchor point in the buffer. For every new point $p_i$, it computes a line $\overline{p_1 p_i}$ from the anchor point to the incoming point. If the distance of one point $p_j$ is bigger than $\epsilon$,  the algorithm removes $p_k, 1\leq k\leq j-1$ from the buffer. Thus, $p_j$ is the new anchor point. The algorithm try to find more anchor point from the remaining points in the buffer until there is no newer anchor points in the remaining points or the number of points in the buffer is smaller than 2. If the distance of all the points to the line is smaller than tolerate error $\epsilon$, the algorithm keeps collecting points in the buffer. Thus, the buffer keeps being extended until the newer anchor point is determined or there is no incoming point. The compression result of T is he collection of anchor points. OPW is online algorithm, but it doesn't work on window-based system. OPW doesn't describe how to avoid the problem that the buffer size is bigger than window size. In additional, OPW is not aging-friendly, but error restricted.
+
+
+
+\subsubsection{STTrace Algorithm}
+
+STTrace \cite{2006:STTrace} is designed for the minimal error problem. It works on the systems that have finite and fixed memory. For each incoming point $p_i$, STTrace calculates synchronous Euclidean distance, $SED$, of all points in a buffer. It removes the point with minimal SED among the points in the buffer to make room for $p_i$ without exceeding given buffer. When the system doesn't receive any data, the points in the buffer is compression result of a trajectory. However, the STTrace compression results are changed until the system stops to receive stream data. Thus, STTrace is a blocking algorithm , and it is not appropriate to run STTrace on online system.
+
+
+
+\subsection{Online Compression Algorithm}
+
+In this subsection, we presents four algorithms, which are jumping window algorithm, sliding window algorithm, and online trajectory compression algorithms for minimal error problem and maximal compression rate problem. To handle stream data, these algorithm support window-based systems. It is impossible that a device has infinite buffer, so the window size is bounded by buffer size in a system. Without loss of generality, we let window size equal to buffer size in our system.\\
+
+圖包含window operator and compression operator
+
+
+\subsubsection{Jumping Window}
+
+Jumping window algorithm can handle the min-$\epsilon$ problem and the maximal compression rate problem. It works on window-based system. The first point in a window is the last point in the previous window. Jumping window algorithm uses dynamic programing to find the optimal subset of data in each window for the specific problem. We regard jumping window algorithm as window-based Bellman algorithm.  Jumping window algorithm is not aging friendliness, but error restricted.
+
+
+
+\subsubsection{Sliding Window}
+
+
+Opening window algorithm is designed for the min-$\epsilon$ problem. It uses STTrace to compress data in each window. Thus, each window with size $s$ has to collect $ N = \frac{s}/{r} $ points under the given compression ratio $r$. When a window collects enough points, opening window algorithm upload all points in the window. It keeps the last point of the window as the first point in the next window. 
+
+\subsubsection{Online Trajectory Compression for minimal error, OTCme}
+
+
+As discussed in \cite{2001:DSMS}, there are three concepts for stream data system as follows: summarization, adaptivity and online data structure. First, it is well-known that a trajectory simplification with more points has the error that equals to or is less than that a trajectory simplification with a little points has. Second, the concise summary of a data set makes compression parameters more suitable for each window. Thus, we propose a formula to compute the quota for the compression result. 
+  \[ Quota = LR-U \]
+  L is the total number of received points in an online sensing system. R is the given compression rate. U is the number of points in the compression result. Thus, we don't have to get the same size of the compression result in each window. Finally, all of operators in the stream data system is element-at-a-time processing for timely online answer. It results in the error of a trajectory simplification is increasing with handling more windows, because we cannot changed the history results. According the fact, a compression algorithm just make the compression result has less error than the previous results. It hints the algorithm doesn't have to waste its quota to reduce error of the results in a window unlimitedly. Moreover, compression algorithms might have more quota to compress data in some windows. Following the above ideas, we modify jumping window algorithm and improve its performance for min-\# problem. We call the modified jumping window algorithm as online trajectory algorithm for minimal error, OTC-me.
+
+
+
+
+\begin{algorithm}[h]
+  \caption{Online Trajectory Compression for minimal error}
+  \label{code:OTCme}
+  \begin{algorithmic}[1]
+  \Require
+   	  $B$: buffer;
+	  $p$: new spatial-temporal point
+      $B[i]$: $i$-th point in buffer;
+      $Bs$: usage of buffer;
+      $s$: window size;
+      $e$: error;
+      $cr$: compression rate;
+      $L$: number of data;
+      $U$: number of uploaded data;
+   \Ensure
+   	\State $p$ pushes back to $B$;
+	\State $L \gets L+1 ;$
+	\If{Bs == s}
+		\State $k \gets L \times cr - U;$
+		\State $B_{subset} \gets SimplyTrace(B,k,e)$;
+		\State //Update parameters
+		\State $e \gets \max (e, GetError(B,B_{subset}));$
+		\State $U \gets U + \#$ of $B_{subset};$
+		\State //Upload data and Clean buffer
+		\State $Upload(B_{subset});$
+		\State $RemovePointsFromBuffer(B[0 ... Bs-1])$
+    \EndIf
+  \end{algorithmic}
+\end{algorithm}
+
+
+
+
+\begin{algorithm}[h]
+  \caption{SimplyTrace for OTCme}
+  \begin{algorithmic}[2]
+  \Require
+   	  $B$: buffer;
+	  $k$: maximal number of subset
+      $e$: current error;
+   \Ensure
+      \For {$i=2$ ; $i<=k$ ; $i++$}
+	    \State //Use Dynamic Program to find out the subset
+	    \State // $B_{i}$ means there are $i$ points in the subset.
+		\State $B_{i} \gets FindMinimalErrorSubset(i)$; 	
+		\State $E_{i} \gets GetError(B,B_{i})$ ;
+		\If {$E_{i} < e$}
+			\State return $B_{i}$
+		\EndIf
+      \EndFor
+      \State $index = findIndex(E);$
+      \State return $B_{index}$;
+ 
+  \end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Online Trajectory Compression for Maximal Compression Rate, OTCMc}
+
+
+
+For min-$\#$ problem, we also obtain ideas from characteristics of data stream and of trajectory simplification. The idea is that the buffer is finite. The new compression algorithm have to solve the full buffer problem. Because we simply our system environment to let window size equal to buffer size, the problem causes the compression operator interrupt data stream system until the buffer is clean. In opening window algorithm, the process to search the next actor point keep running until the algorithm finds out there exists one point that distance exceeds tolerate error. The searching method is not suitable in data stream systems. What's more, it results in full buffer problem. However, finite buffer helps us to design a compression algorithm for data stream system.  We think the compression algorithm don't search the new anchor point in a buffer until the buffer is full. Assuming that there are points ${p_1,...,p_N}$ in the buffer, we might find out some points ${p_1',...p_j'}$ with the distance that is larger than tolerate error among the points ${p_1,...,p_N}$. Then, we choose $p_j'$ that has the largest index among ${p_1',...p_j'}$ as the new anchor point. Because of finite buffer, the set ${p_1',...p_j'}$ is finite, too. It tells us the new version of searching method works on window-based data stream system. We update open window algorithm and call it as online trajectory compression for maximal compression rate, OTC-Mc.
+
+\begin{algorithm}[h]
+  \caption{Online Trajectory Compression for maximal compression rate}
+  \begin{algorithmic}[3]
+   \Require
+   	  $B$: buffer;
+	  $p$: new spatial-temporal point;
+      $B[i]$: $i$-th point in buffer;
+      $Bs$: usage of buffer;
+      $s$: window size;
+      $e$: error;
+   \Ensure
+    \State $p$ pushes back to $B$;
+    \If{Bs == s}
+		\State $j \gets GreedySearch(B,e)$;
+		\State $Upload(B[j]);$
+		\State $RemovePointsFromBuffer(B[0 ... j-1])$;
+    \EndIf
+      \end{algorithmic}
+\end{algorithm}
+
+
+\begin{algorithm}[h]
+  \caption{GreedySearch for OTCMc}
+  \begin{algorithmic}[4]
+   \Require
+   	  $B$: buffer;
+      $B[i]$: $i$th point in buffer;
+      $e$: error;
+      $s$: window size;
+   \Ensure
+   \State $ans \gets -1;$
+   \For {$i=1...s-1$}
+     \State $e_{temp} = ComputeError(B,{B[0],B[i]});$
+     \If {$e_{temp} \leq e $}
+     	\State $ans \gets i$;
+	 \EndIf
+   \EndFor
+   \State return $ans$;
+   \end{algorithmic}
+\end{algorithm}
+
+
+
+\section{Evaluation}
+
+為了能夠更充分的討論與分析online trajectory compression algorithm的效能，我們除了實作 Jumping window, opening window, OTCme, and OTCMc之外，也實作Bellman algorithm for min-\# 與 min-$\epsilon$，對兩種不同問題上的最佳解(optimal solution)作為我們的base line。同時針對不同的問題，我們也考慮TDTR, OPW, STTrace這些heuristic batch algorithm，作為一般實務上效能比較的參考值。\\
+
+
+\subsection{Data and Simulation Parameters}
+
+我們採用Taipei eBus system的資料當做資料來源。Taeipei eBus system每天會有超過4000台公車的軌跡，並且涵蓋整個台北都會區30平方公里的面積上，每分鐘利用車上的GPRS或者3G無線網路將公車的及時位置回報至資料中心。我們採用2011/1月的資料，每日每台車都會回傳一條軌跡，平均含有800多個點，其時速的範圍在0~60km/hr 之間。我們將利用這組資料針對不同的問題進行壓縮。\\
+
+
+SFTaxiData\\
+
+EveryTrail\\
+
+
+
+
+在min-\# problem中，我們會比較Bellman algorithm，TDTR，OPW, OTCMc。我們將實驗不同的tolerate error 10m ~ 100m 與不同的buffer size下，其壓縮率的表現。 此外，要參考的軌跡眾多，所以我們將這些壓縮率平均後再比較。\\
+
+在min-$\epsilon$ problem中，我們將比較 Bellman, STTrace,Jumping window, sliding window, and OTCme。我們將考慮在不同的compression rate 10\% ~ 90\%下，其誤差的表現。同樣的，因為計算的軌跡眾多，所以將這些軌跡的壓縮誤差平均後比較。\\
+
+
+
+
+
+
+
+
+
+\subsection{Minimal - \# problem}
+這個問題是給定一條軌跡與tolerate error下，找出擁有最大化compression rate的壓縮子集。同時也比較在window-based algorithms在不同的buffer size下，其壓縮率的表現。
+
+
+
+\subsubsection{Effect of varying tolerate error $\epsilon$}
+
+
+\begin{figure}[ht]
+\begin{center}
+\includegraphics[width=1\textwidth]{../figure/4.eps}
+\caption{Batch algorithms and Greedy algorithm with window size 60 points}
+\label{fig:fig4}
+\end{center}
+\end{figure}
+
+
+在實驗中，我們考慮10m \~ 100m之間的tolerate error，如圖~\ref{fig:fig4}。可以看見Bellman與OTCMc明顯地比OPW與TDTR還要好。當誤差超過50的時候，OPW與TDTR的誤差已經比OTCMc 和 Bellman的壓縮率逐漸拉開。\\
+
+由於TDTR是batch algorithm，在處理的時候擁有全局的資訊進行選點的判斷，相較於OPW利基於stream-based data進行選點還要好。在誤差小的設置下，不需要選出太多的點。所以在TDTR的流程中，每一步都可以有比OPW更多的選擇。所以當tolerate error越大的時候，OPW與TDTR的表現就越差越大。\\
+
+而OTCMc的誤差幾乎等於Bellman演算法，接近最佳解。特別是當誤差小的時候，這兩者的表現是一樣的。因為OTCMc充份利用buffer能夠提供的最多的資訊來選點，而且是對軌跡的每一個片段做細部的計算，同時兼具TDTR與OPW的特性，所以可以達到接近Bellman演算法的效能。
+
+\subsubsection{Effect of varying window size}
+\begin{figure}[ht]
+\begin{center}
+\includegraphics[width=1\textwidth]{../figure/5.eps}
+\caption{Bellman algorithms and OTCme with varying window size}
+\label{fig:fig5}
+\end{center}
+\end{figure}
+
+由於OTCMc與 jumping window 是運作在window-based operator的系統上，所以會受到window size的影響。在圖~\ref{fig:fig5}中，我們可以看見OTCMc 很明顯的都比jumping window的表現還要好。而且伴隨著window size的增長，jumping window的壓縮率也隨之提高。\\
+
+由於OTCMc在每一次進行壓縮流程時是利用全buffer的資料找尋一個點作為最適當解，而jumping window則是在同一個window內找多個點作為最適當解，所以在OTCMc裡，軌跡中每一個點能夠參考的點數是比jumping window還要多。\\
+
+雖然Jumping window的壓縮率隨著window size增加，但是OTCMc卻幾乎不變，這項特性已經隱約暗示我們平均每隔20個點就能找出一個最適合的簡化線段。而且也告訴我們在合宜的演算法下，buffer size不會是影響壓縮效能的主要因素。
+
+\subsubsection{Tolerate Error v.s. Actual Error}
+
+\begin{figure}[ht]
+\begin{center}
+\includegraphics[width=1\textwidth]{../figure/6.eps}
+\caption{Average of actual error}
+\label{fig:fig6}
+\end{center}
+\end{figure}
+
+可以看見幾乎每一個演算法在誤差的控制上是類似的，平均來說真實的誤差會是給定的十分之一。不過這就可以佐證，這些演算法的差異非來自演算法的誤差控制。很有可能是因為該組軌跡資料本身的移動特性所導致而成的。
+
+
+\subsection{Minimal - $\epsilon$ problem}
+
+這是找出在給定有限儲存空間下，找出擁有最小的誤差的壓縮軌跡的問題。然而由於軌跡長度不定，而且對於不知記錄長度的stream-base system上不切實際。所以在保有問題的概念之下，我們將原問題改為給定壓縮率下，找出擁有最小誤差的壓縮軌跡。
+
+
+
+\subsubsection{Effect of varying compression rate}
+
+
+\begin{figure}[ht]
+\begin{center}
+\includegraphics[width=1\textwidth]{../figure/2.eps}
+\caption{Larger buffer, better performance}
+\label{fig:fig2}
+\end{center}
+\end{figure}
+
+圖~\ref{fig:fig2}這實驗指出，STTrace和Sliding window的表現是類似的，而OTCme是比Jumping window還要好。Bellman algorithm的線則告訴我們目前所用的演算法仍然有段差距可以努力。\\
+
+STTrace 與 Sliding window 因為在選點的策略上是一樣的，只是前者擁有足額的buffer可以一次就處理完全部軌跡，而後者受限window size有限，在計算的時候必須分段處理，所以在誤差的控制上，STTrace 比 Sliding window 還要好。雖然如此，都還是不如採用Jumping winodw的處理方式。\\
+
+在OTCme與Jumping window，由於他們採用類似的選點，更新window的策略，所以整體曲線會相當類似。但是OTCme擁有可以將多餘資源轉移的能力，所以在要求高壓縮率的時候，OTCme在誤差的控制上就會比Jumping window還要好。\\
+
+
+
+
+\subsubsection{Effect of varying window size}
+
+
+
+\begin{figure}[ht]
+\begin{center}
+\includegraphics[width=1\textwidth]{../figure/3.eps}
+\caption{Larger buffer, better performance\label{fig:fig3}}
+
+\end{center}
+\end{figure}
+
+
+圖~\ref{fig:fig3}實驗結果比較了不同window size下的OTCme，以及Jumping window with window size =60。證明當window越大的話，壓縮出來的誤差就會降低。而這個結果是非常合理的事情。\\
+
+特別是在OTCme 的window size = 40 的時候已經幾乎等於有 Jumping window 的window size = 60的表現，着在更好的選點策略的話，就能用小的buffer來達到大buffer才能擁有的效能。這對系統資源有限的行動裝置上，是一項非常好的特性。\\
+
+因為jumping window的設計原則是將每個window內取出最佳的子集，所以當window size越大的時候，就可以擁有越多的選擇，因此相較於Open window只能利用前一次壓縮後的結果進行處理，擁有選擇多的jumping window可以得到更小的誤差 。\\
+
+
+\subsubsection{Target Compression Rate v.s. Actual Compression Rate}
+
+\begin{figure}[ht]
+\begin{center}
+\includegraphics[width=1\textwidth]{../figure/7.eps}
+\caption{Average of Compression Rate}
+\label{fig:fig7}
+\end{center}
+\end{figure}
+
+從圖~\ref{fig:fig7}中，可以看見OTCme的實質壓縮率是比設定的還要高。伴隨著window size的提高，其實質壓縮率會更貼近設定壓縮率，這代表着SACTA可以投注更多資源降低誤差。另外一方面，因為Jumping window並不會做資源調節，所以Jumping window 的實質壓縮率與Bellman是一致的。
+
+
+
+
+
+\subsection{Execution Time Comparison}
+
+
+
+
+\section{Conclusion}
+
+在這篇文章之中，我們敘述行動定位系統的重要，以及在行動裝置上的減少資源使用的問題，特別是在有限的記憶體用量的裝置上。此外，stream-based data 也是利用行動定位系統最常使用的資料來源。針對行動裝置上的特性，以及資料來源的性質，我們提出四項在這樣的環境設定下，資料的處理程序需要注意的四項條件。為了能夠兼顧來自不同物體的軌跡資訊以及減少額外的處理流程，我們採用了line simplification作為簡化stream-based trajectory data的方法。最後根據四項要求，提出四個window-based trajectory compression algorithms。我們更進一步的比較我們所提出的演算法，與過去被用來針對min-\# problem 與 min-$\epsilon$ problem的演算法在實際資料上的表現。\\
+
+
+
+在min-$\epsilon$ problem的問題上，我們推薦使用提出了Online Trajectory Compression for minimal error，因為OTCme擁有比window-based壓縮演算法有更還要好的壓縮表現之外，也比STTrace這個演算法還要好。此外SATCA演算法說明了，對於已上傳的資料保留合宜的資訊給新的compression operator，對整體的誤差控制會更好。也就是說設計壓縮流程的時候，不一定需要擁有新的壓縮核心和大量的系統資源，而是聰明的保留資源給需要的地方使用。\\
+
+在min-\# problem的問題上，我們推薦使用OTCMc，因為他的表現幾乎等於最佳解, Bellman的結果，而且計算量卻比Bellman少很多。並且OTCMc 在實驗結果告訴我們window-size的變化對於該演算法的影響不大，這也意味這在min-\#的問題上，我們可以不用太多的buffer，就能達到所想要的誤差的壓縮結果，這對資源吃緊的行動裝置上，是一件非常棒的成果。\\
+
+
+最後，在完成整個實驗之後，我們察覺除了window operator與 compression operator可以整合以提升效能，若能更進一步的協同uploading operator或者是other further operator一起設計。我們就能替compression operator在增加選點自由度，提升壓縮演算法的效能,例如：將OTCme的誤差控制能力提升，使其更加接近baseline—Bellman的結果，這將是我們的下一步改進目標。
+
+
+	\bibliographystyle{unsrt}
+	\bibliography{../PaperC/reference}
+\end{CJK} 
+\end{document}
+
+
